@@ -1,14 +1,18 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 
 function Login() {
-  const { login } = useAuth();
+  const { login, token } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (token) navigate("/products");
+  }, [token, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -16,9 +20,9 @@ function Login() {
     setError("");
     try {
       await login(email, password);
-      navigate("/");  
+      navigate("/products");
     } catch {
-      setError("Email veya şifre hatalı");
+      setError("Email veya şifre hatalı");  // Türkçe
     } finally {
       setLoading(false);
     }
@@ -34,6 +38,7 @@ function Login() {
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            required
             style={{ width: "100%", padding: "0.5rem" }}
           />
         </div>
@@ -43,6 +48,7 @@ function Login() {
             placeholder="Şifre"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            required
             style={{ width: "100%", padding: "0.5rem" }}
           />
         </div>
