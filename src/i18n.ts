@@ -1,0 +1,138 @@
+import i18n from 'i18next';
+import { initReactI18next } from 'react-i18next';
+import LanguageDetector from 'i18next-browser-languagedetector';
+
+i18n
+  .use(LanguageDetector)
+  .use(initReactI18next)
+  .init({
+    fallbackLng: 'tr',
+    supportedLngs: ['tr', 'en'],
+    interpolation: { escapeValue: false },
+    resources: {
+      tr: {
+        translation: {
+          login: 'Giriş Yap',
+          register: 'Kayıt Ol',
+          email: 'Email',
+          password: 'Şifre',
+          name: 'İsim',
+          loginButton: 'Giriş Yap',
+          registerButton: 'Kayıt Ol',
+          products: 'Ürünler',
+          cart: 'Sepet',
+          orders: 'Siparişlerim',
+          logout: 'Çıkış Yap',
+          search: 'Ürün ara...',
+          allCategories: 'Tüm Kategoriler',
+          loading: 'Yükleniyor...',
+          productsPage: {
+            title: 'Ürünler',
+            searchPlaceholder: 'Ürün veya kategori ara',
+            searchButton: 'Ara',
+            allCategories: 'Tüm Kategoriler',
+            searching: 'Aranıyor...',
+            noResults: 'Ürün bulunamadı.',
+            loadError: 'Ürünler yüklenemedi.',
+            categoryResults: '{{category}} kategorisindeki ürünler',
+            currency: 'TL',
+            productCount: '{{count}} ürün listeleniyor',
+            tagline: 'Kaliteli teknoloji ürünlerinde en iyi fiyat garantisi',
+          },
+          loginPage: {
+            badge: 'Yetkili alışveriş',
+            tagline: 'Binlerce ürün, tek adres',
+            subtitle: 'Devam etmek için hesabınıza giriş yapın',
+            description: 'Aradığınız teknoloji ürünlerini güvenli ödeme ve hızlı teslimat ile keşfedin.',
+            emailPlaceholder: 'ornek@email.com',
+            passwordPlaceholder: 'Şifrenizi girin',
+            securePayment: 'Güvenli ödeme',
+            fastDelivery: 'Hızlı teslimat',
+            wideSelection: 'Geniş ürün yelpazesi',
+            browseProducts: 'Ürünleri incele',
+          },
+          categories: {
+            computer: 'Bilgisayar',
+            phone: 'Telefon',
+            headphones: 'Kulaklık',
+            keyboard: 'Klavye',
+            mouse: 'Mouse',
+          },
+          errorEmailPassword: 'Email veya şifre hatalı',
+          errorEmailExists: 'Bu email zaten kayıtlı',
+          errorNetwork: 'Sunucuya bağlanılamadı. Bağlantınızı kontrol edin.',
+          errorGeneric: 'Beklenmeyen bir hata oluştu.',
+          errorForbidden: 'Bu sayfaya erişim yetkiniz yok.',
+          welcome: 'Hoş geldin, {{name}}',
+          language: 'Dil',
+          loginSuccess: 'Giriş başarılı!',
+          registerSuccess: 'Kayıt başarılı! Giriş sayfasına yönlendiriliyorsunuz...',
+          addProduct: 'Ürün Ekle',
+          currency: 'TL',
+        }
+      },
+      en: {
+        translation: {
+          login: 'Login',
+          register: 'Register',
+          email: 'Email',
+          password: 'Password',
+          name: 'Name',
+          loginButton: 'Login',
+          registerButton: 'Register',
+          products: 'Products',
+          cart: 'Cart',
+          orders: 'My Orders',
+          logout: 'Logout',
+          search: 'Search products...',
+          allCategories: 'All Categories',
+          loading: 'Loading...',
+          errorEmailPassword: 'Invalid email or password',
+          errorEmailExists: 'This email is already registered',
+          errorNetwork: 'Could not connect to the server. Please check your connection.',
+          errorGeneric: 'An unexpected error occurred.',
+          errorForbidden: 'You do not have permission to view this page.',
+          welcome: 'Welcome, {{name}}',
+          language: 'Language',
+          loginSuccess: 'Login successful!',
+          registerSuccess: 'Registration successful! Redirecting to login...',
+          addProduct: 'Add Product',
+          currency: 'TL',
+          productsPage: {
+            title: 'Products',
+            searchPlaceholder: 'Search product or category',
+            searchButton: 'Search',
+            allCategories: 'All Categories',
+            searching: 'Searching...',
+            noResults: 'No products found.',
+            loadError: 'Products could not be loaded.',
+            categoryResults: 'Products in {{category}} category',
+            currency: 'TL',
+            productCount: '{{count}} products listed',
+            tagline: 'Best price guarantee on quality tech products',
+          },
+          loginPage: {
+            badge: 'Authorized shopping',
+            tagline: 'Thousands of products, one place',
+            subtitle: 'Sign in to your account to continue',
+            description: 'Discover the technology products you are looking for with secure payment and fast delivery.',
+            emailPlaceholder: 'you@email.com',
+            passwordPlaceholder: 'Enter your password',
+            securePayment: 'Secure payment',
+            fastDelivery: 'Fast delivery',
+            wideSelection: 'Wide selection',
+            browseProducts: 'Browse products',
+          },
+          categories: {
+            computer: 'Computers',
+            phone: 'Phones',
+            headphones: 'Headphones',
+            keyboard: 'Keyboards',
+            mouse: 'Mice',
+          },
+        }
+      }
+    }
+  });
+
+export default i18n;

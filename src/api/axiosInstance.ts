@@ -1,4 +1,5 @@
 import axios from "axios";
+import type { AxiosError, InternalAxiosRequestConfig } from "axios";
 
 export interface ApiErrorResponse {
   status: number;
@@ -23,8 +24,16 @@ export interface ApiError {
   timestamp?: string;
 }
 
+declare module "axios" {
+  interface InternalAxiosRequestConfig {
+    _retry?: boolean;
+  }
+}
+
+export const TOKEN_STORAGE_KEY = "token";
+
 const api = axios.create({
-  baseURL: "http://localhost:8080/api/v1",
+  baseURL: import.meta.env.VITE_API_URL ?? "/api/v1",
   withCredentials: true,
 });
 
@@ -35,18 +44,18 @@ let failedQueue: Array<{
 }> = [];
 
 function processQueue(error: unknown) {
-  failedQueue.forEach((promise) => {
+  failedQueue.forEach(({ resolve, reject }) => {
     if (error) {
-      promise.reject(error);
+      reject(error);
     } else {
-      promise.resolve(undefined);
+      resolve(undefined);
     }
   });
   failedQueue = [];
 }
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem(TOKEN_STORAGE_KEY);
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -55,44 +64,53 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
+  async (error: AxiosError<ApiErrorResponse>) => {
+    const originalRequest = error.config as InternalAxiosRequestConfig | undefined;
 
-    if (axios.isAxiosError<ApiErrorResponse>(error) && error.response?.status === 401 && !originalRequest._retry) {
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        }).then(() => api(originalRequest));
-      }
+    const isUnauthorized = error.response?.status === 401;
+    const isRefreshCall = originalRequest?.url?.includes("/auth/refresh");
+    const isLoginCall = originalRequest?.url?.includes("/auth/login");
 
-      originalRequest._retry = true;
-      isRefreshing = true;
-
-      try {
-        await api.post("/auth/refresh");
-        processQueue(null);
-        return api(originalRequest);
-      } catch (refreshError) {
-        processQueue(refreshError);
-        localStorage.removeItem("token");
-        if (window.location.pathname !== "/login") {
-          window.location.assign("/login");
-        }
-        return Promise.reject(refreshError);
-      } finally {
-        isRefreshing = false;
-      }
+    if (!isUnauthorized || !originalRequest || originalRequest._retry || isRefreshCall || isLoginCall) {
+      return Promise.reject(error);
     }
 
-    return Promise.reject(error);
-  }
+    originalRequest._retry = true;
+
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        failedQueue.push({ resolve, reject });
+      }).then(() => api(originalRequest));
+    }
+
+    isRefreshing = true;
+
+    try {
+      const refreshResponse = await api.post<{ token: string }>("/auth/refresh");
+      const newToken = refreshResponse.data.token;
+      localStorage.setItem(TOKEN_STORAGE_KEY, newToken);
+      window.dispatchEvent(new CustomEvent("auth:token-refreshed", { detail: newToken }));
+      processQueue(null);
+      return api(originalRequest);
+    } catch (refreshError) {
+      processQueue(refreshError);
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+      window.dispatchEvent(new Event("auth:session-expired"));
+      return Promise.reject(refreshError);
+    } finally {
+      isRefreshing = false;
+    }
+  },
 );
 
-export function getApiErrorMessage(error: unknown, fallback = "An unexpected error occurred.") {
-  return toApiError(error, fallback).message;
-}
+export function toApiError(
+  error: unknown,
+  fallback = "An unexpected error occurred.",
+): ApiError {
+  if (axios.isCancel(error)) {
+    return { code: "UNKNOWN_ERROR", message: "" };
+  }
 
-export function toApiError(error: unknown, fallback = "An unexpected error occurred."): ApiError {
   if (!axios.isAxiosError<ApiErrorResponse>(error)) {
     return { code: "UNKNOWN_ERROR", message: fallback };
   }
@@ -124,6 +142,10 @@ export function toApiError(error: unknown, fallback = "An unexpected error occur
     default:
       return { code: "UNKNOWN_ERROR", status, message, timestamp };
   }
+}
+
+export function getApiErrorMessage(error: unknown, fallback?: string): string {
+  return toApiError(error, fallback).message;
 }
 
 export default api;
