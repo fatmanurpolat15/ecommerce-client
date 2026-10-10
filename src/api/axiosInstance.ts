@@ -1,6 +1,8 @@
 import axios from "axios";
 import type { AxiosError, InternalAxiosRequestConfig } from "axios";
 
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "/api/v1";
+
 export interface ApiErrorResponse {
   status: number;
   message: string;
@@ -33,7 +35,7 @@ declare module "axios" {
 export const TOKEN_STORAGE_KEY = "token";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? "/api/v1",
+  baseURL: API_BASE_URL,
   withCredentials: true,
 });
 
