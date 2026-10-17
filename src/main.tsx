@@ -3,6 +3,7 @@ import "./i18n";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
+import { Toaster } from "sonner";
 import "./index.css";
 import App from "./App";
 import { AuthProvider } from "./context/AuthProvider";
@@ -18,6 +19,7 @@ createRoot(container).render(
     <BrowserRouter>
       <AuthProvider>
         <App />
+        <Toaster theme="dark" position="top-center" richColors closeButton />
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>,
