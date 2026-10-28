@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
-import { Link, Navigate, useLocation } from "react-router-dom";
+import { useEffect, type ReactNode } from "react";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { useAuth } from "../context/useAuth";
 import type { UserRole } from "../types/api";
 
@@ -27,6 +28,14 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
   const { token, user, loading } = useAuth();
   const { t } = useTranslation();
   const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (allowedRoles && user && !allowedRoles.includes(user.role)) {
+      toast.error(t("errorForbidden"));
+      navigate("/products");
+    }
+  }, [allowedRoles, user, t, navigate]);
 
   if (loading) {
     return <FullScreenLoader label={t("loading")} />;
@@ -37,35 +46,7 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
   }
 
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
-    return (
-      <div className="mx-auto max-w-md px-4 py-20 text-center">
-        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-8">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-500/15">
-            <svg
-              className="h-6 w-6 text-red-400"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={1.8}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-            </svg>
-          </span>
-          <p role="alert" className="mt-4 text-sm font-medium text-red-300">
-            {t("errorForbidden")}
-          </p>
-          <Link
-            to="/products"
-            className="mt-6 inline-block rounded-lg bg-white/10 px-4 py-2 text-sm font-medium text-slate-100 transition hover:bg-white/20"
-          >
-            {t("products")}
-          </Link>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return <>{children}</>;
