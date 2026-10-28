@@ -88,7 +88,11 @@ api.interceptors.response.use(
     isRefreshing = true;
 
     try {
-      const refreshResponse = await api.post<{ token: string }>("/auth/refresh");
+      const refreshResponse = await axios.post<{ token: string }>(
+        `${API_BASE_URL}/auth/refresh`,
+        {},
+        { withCredentials: true },
+      );
       const newToken = refreshResponse.data.token;
       localStorage.setItem(TOKEN_STORAGE_KEY, newToken);
       window.dispatchEvent(new CustomEvent("auth:token-refreshed", { detail: newToken }));

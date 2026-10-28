@@ -11,12 +11,12 @@ interface ProtectedRouteProps {
 
 function FullScreenLoader({ label }: { label: string }) {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-slate-50">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-3">
       <span
-        className="h-8 w-8 animate-spin rounded-full border-[3px] border-slate-200 border-t-blue-600"
+        className="h-8 w-8 animate-spin rounded-full border-[3px] border-white/10 border-t-blue-500"
         aria-hidden="true"
       />
-      <p role="status" className="text-sm text-slate-500">
+      <p role="status" className="text-sm text-slate-400">
         {label}
       </p>
     </div>
@@ -39,10 +39,10 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
     return (
       <div className="mx-auto max-w-md px-4 py-20 text-center">
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-8">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-8">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-500/15">
             <svg
-              className="h-6 w-6 text-red-600"
+              className="h-6 w-6 text-red-400"
               fill="none"
               stroke="currentColor"
               strokeWidth={1.8}
@@ -54,12 +54,12 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
               <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
             </svg>
           </span>
-          <p role="alert" className="mt-4 text-sm font-medium text-red-800">
+          <p role="alert" className="mt-4 text-sm font-medium text-red-300">
             {t("errorForbidden")}
           </p>
           <Link
             to="/products"
-            className="mt-6 inline-block rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
+            className="mt-6 inline-block rounded-lg bg-white/10 px-4 py-2 text-sm font-medium text-slate-100 transition hover:bg-white/20"
           >
             {t("products")}
           </Link>
