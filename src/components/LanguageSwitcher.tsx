@@ -15,7 +15,7 @@ function LanguageSwitcher() {
       className="flex overflow-hidden rounded-lg border border-white/10 bg-white/5 p-0.5"
     >
       {LANGUAGES.map(({ code, label }) => {
-        const isActive = i18n.language === code;
+        const isActive = i18n.resolvedLanguage === code;
 
         return (
           <button
