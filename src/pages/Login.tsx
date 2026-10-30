@@ -30,6 +30,9 @@ function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showRegisteredAlert, setShowRegisteredAlert] = useState<boolean>(
+    () => Boolean(location.state?.registered),
+  );
 
   if (token) {
     return <Navigate to={resolveRedirect(location.state)} replace />;
@@ -37,6 +40,7 @@ function Login() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setShowRegisteredAlert(false);
     setLoading(true);
 
     const redirectTo = resolveRedirect(location.state);
@@ -59,7 +63,7 @@ function Login() {
       </div>
 
       <form onSubmit={handleSubmit} noValidate className="mt-8 space-y-4">
-        {location.state?.registered && (
+        {showRegisteredAlert && (
           <p className="flex items-start gap-2 rounded-lg border border-green-500/30 bg-green-500/10 px-3.5 py-2.5 text-sm text-green-300">
             <svg
               className="mt-0.5 h-4 w-4 shrink-0"
