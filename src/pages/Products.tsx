@@ -7,8 +7,7 @@ import api, { toApiError } from "../api/axiosInstance";
 import { translateCategoryName } from "../utils/categoryLabel";
 import type { Category, Page, Product } from "../types/api";
 
-const PAGE_SIZE = 50;
-const CATEGORY_PAGE_SIZE = 100;
+const PAGE_SIZE = 12;
 
 const CATEGORY_THEMES: Record<string, { gradient: string; accent: string; glow: string }> = {
   bilgisayar: {
@@ -50,12 +49,28 @@ function themeFor(categoryName: string) {
   );
 }
 
-function normalize(value: string): string {
-  return value.trim().toLocaleLowerCase("tr");
-}
-
 function extractItems<T>(data: T[] | Page<T>): T[] {
   return Array.isArray(data) ? data : data.content;
+}
+
+function formatProductPrice(
+  price: number,
+  currency: string | null | undefined,
+  lang: string,
+): string {
+  const safeCurrency = currency && currency.trim() ? currency.trim().toUpperCase() : "TRY";
+  try {
+    return new Intl.NumberFormat(lang === "tr" ? "tr-TR" : "en-US", {
+      style: "currency",
+      currency: safeCurrency,
+    }).format(price);
+  } catch {
+    return `${price} ${safeCurrency}`;
+  }
+}
+
+function normalize(value: string): string {
+  return value.trim().toLocaleLowerCase("tr");
 }
 
 function matchCategory(
@@ -86,8 +101,10 @@ function buildProductsRequest(
   term: string,
   selectedCategoryId: number | "",
   t: TFunction,
+  page: number,
+  size: number,
 ): { url: string; params: URLSearchParams } {
-  const params = new URLSearchParams({ page: "0", size: String(PAGE_SIZE) });
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
   const category =
     selectedCategoryId === "" ? matchCategory(categories, term, t) : undefined;
 
@@ -114,6 +131,9 @@ function Products() {
   const [query, setQuery] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryId, setCategoryId] = useState<number | "">("");
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,30 +143,25 @@ function Products() {
     [categories, searchTerm, t],
   );
 
-  const formatter = useMemo(
-    () =>
-      new Intl.NumberFormat(i18n.language === "tr" ? "tr-TR" : "en-US", {
-        style: "currency",
-        currency: "TRY",
-      }),
-    [i18n.language],
-  );
-
-  const request = useMemo(
-    () => buildProductsRequest(categories, searchTerm, categoryId, t),
-    [categories, searchTerm, categoryId, t],
-  );
-
   useEffect(() => {
     const controller = new AbortController();
+    const req = buildProductsRequest(categories, searchTerm, categoryId, t, page, PAGE_SIZE);
 
     api
-      .get<Product[] | Page<Product>>(request.url, {
-        params: request.params,
+      .get<Product[] | Page<Product>>(req.url, {
+        params: req.params,
         signal: controller.signal,
       })
       .then((response) => {
-        setProducts(extractItems(response.data));
+        if (Array.isArray(response.data)) {
+          setProducts(response.data);
+          setTotalPages(1);
+          setTotalElements(response.data.length);
+        } else {
+          setProducts(response.data.content ?? []);
+          setTotalPages(response.data.totalPages ?? 1);
+          setTotalElements(response.data.totalElements ?? response.data.content?.length ?? 0);
+        }
         setError(null);
       })
       .catch((caught: unknown) => {
@@ -154,6 +169,8 @@ function Products() {
           return;
         }
         setProducts([]);
+        setTotalPages(0);
+        setTotalElements(0);
         setError(toApiError(caught, t("productsPage.loadError")).message);
       })
       .finally(() => {
@@ -164,14 +181,13 @@ function Products() {
       });
 
     return () => controller.abort();
-  }, [request, t]);
+  }, [categories, searchTerm, categoryId, page, t]);
 
   useEffect(() => {
     const controller = new AbortController();
 
     api
       .get<Category[] | Page<Category>>("/categories", {
-        params: { page: 0, size: CATEGORY_PAGE_SIZE },
         signal: controller.signal,
       })
       .then((response) => setCategories(extractItems(response.data)))
@@ -184,6 +200,7 @@ function Products() {
     event.preventDefault();
     setSearching(true);
     setCategoryId("");
+    setPage(0);
     setSearchTerm(query.trim());
   }
 
@@ -191,6 +208,7 @@ function Products() {
     setSearching(true);
     setQuery("");
     setSearchTerm("");
+    setPage(0);
     setCategoryId(value);
   }
 
@@ -205,9 +223,9 @@ function Products() {
           <p className="mt-1.5 text-sm text-slate-400">{t("productsPage.tagline")}</p>
         </div>
 
-        {!loading && products.length > 0 && (
+        {!loading && totalElements > 0 && (
           <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-3.5 py-1.5 text-xs font-semibold text-blue-300 backdrop-blur">
-            {t("productsPage.productCount", { count: products.length })}
+            {t("productsPage.productCount", { count: totalElements })}
           </span>
         )}
       </div>
@@ -343,58 +361,84 @@ function Products() {
           <p className="text-sm text-slate-400">{t("productsPage.noResults")}</p>
         </div>
       ) : (
-        <ul className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {products.map((product) => {
-            const theme = themeFor(product.categoryName);
-            const categoryLabel = translateCategoryName(product.categoryName, t);
+        <>
+          <ul className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {products.map((product) => {
+              const theme = themeFor(product.categoryName);
+              const categoryLabel = translateCategoryName(product.categoryName, t);
 
-            return (
-              <li
-                key={product.id}
-                className={`group flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-900/60 shadow-lg shadow-black/30 backdrop-blur-xl transition duration-300 hover:-translate-y-1.5 hover:border-blue-500/40 hover:shadow-2xl ${theme.glow}`}
-              >
-                <div
-                  className={`relative flex h-36 items-center justify-center bg-gradient-to-br ${theme.gradient}`}
+              return (
+                <li
+                  key={product.id}
+                  className={`group flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-900/60 shadow-lg shadow-black/30 backdrop-blur-xl transition duration-300 hover:-translate-y-1.5 hover:border-blue-500/40 hover:shadow-2xl ${theme.glow}`}
                 >
-                  {product.imageUrl ? (
-                    <img
-                      src={product.imageUrl}
-                      alt={product.name}
-                      loading="lazy"
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <>
-                      <div className="animate-shimmer absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent" />
-                      <span className="relative text-4xl font-black text-white/35 transition duration-300 group-hover:scale-110">
-                        {categoryLabel.charAt(0).toLocaleUpperCase("tr")}
-                      </span>
-                    </>
-                  )}
+                  <div
+                    className={`relative flex h-36 items-center justify-center bg-gradient-to-br ${theme.gradient}`}
+                  >
+                    {product.imageUrl ? (
+                      <img
+                        src={product.imageUrl}
+                        alt={product.name}
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <>
+                        <div className="animate-shimmer absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent" />
+                        <span className="relative text-4xl font-black text-white/35 transition duration-300 group-hover:scale-110">
+                          {categoryLabel.charAt(0).toLocaleUpperCase("tr")}
+                        </span>
+                      </>
+                    )}
 
-                  <span className="absolute left-3 top-3 rounded-full bg-slate-950/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-200 backdrop-blur">
-                    {categoryLabel}
-                  </span>
-                </div>
-
-                <div className="flex flex-1 flex-col p-4">
-                  <h2 className="text-sm font-semibold leading-snug text-slate-100 transition group-hover:text-blue-300">
-                    {product.name}
-                  </h2>
-                  <p className="mt-1 line-clamp-2 text-xs text-slate-400">
-                    {product.description}
-                  </p>
-
-                  <div className="mt-auto pt-3">
-                    <p className={`text-lg font-bold ${theme.accent}`}>
-                      {formatter.format(product.price)}
-                    </p>
+                    <span className="absolute left-3 top-3 rounded-full bg-slate-950/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-200 backdrop-blur">
+                      {categoryLabel}
+                    </span>
                   </div>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+
+                  <div className="flex flex-1 flex-col p-4">
+                    <h2 className="text-sm font-semibold leading-snug text-slate-100 transition group-hover:text-blue-300">
+                      {product.name}
+                    </h2>
+                    <p className="mt-1 line-clamp-2 text-xs text-slate-400">
+                      {product.description}
+                    </p>
+
+                    <div className="mt-auto pt-3">
+                      <p className={`text-lg font-bold ${theme.accent}`}>
+                        {formatProductPrice(product.price, product.currency, i18n.language)}
+                      </p>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          {totalPages > 1 && (
+            <div className="mt-10 flex items-center justify-center gap-3">
+              <button
+                type="button"
+                disabled={page <= 0 || loading}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                className="rounded-lg border border-white/10 bg-slate-900/60 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t("productsPage.previousPage")}
+              </button>
+              <span className="text-sm font-medium text-slate-400">
+                {t("productsPage.pageInfo", { current: page + 1, total: totalPages })}
+              </span>
+              <button
+                type="button"
+                disabled={page >= totalPages - 1 || loading}
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                className="rounded-lg border border-white/10 bg-slate-900/60 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t("productsPage.nextPage")}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

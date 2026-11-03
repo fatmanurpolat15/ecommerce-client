@@ -1,8 +1,11 @@
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import Navbar from "./components/Navbar";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Products from "./pages/Products";
+import Profile from "./pages/Profile";
 
 function App() {
   const { pathname } = useLocation();
@@ -33,9 +36,94 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/products" element={<Products />} />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <Profile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/cart"
+            element={
+              <ProtectedRoute>
+                <AccountPlaceholder titleKey="cart" />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/orders"
+            element={
+              <ProtectedRoute>
+                <AccountPlaceholder titleKey="orders" />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/orders"
+            element={
+              <ProtectedRoute allowedRoles={["ADMIN"]}>
+                <AccountPlaceholder titleKey="adminOrders" />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/addresses"
+            element={
+              <ProtectedRoute>
+                <AccountPlaceholder titleKey="addresses" />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/categories"
+            element={
+              <ProtectedRoute allowedRoles={["ADMIN"]}>
+                <AccountPlaceholder titleKey="category" />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/payments"
+            element={
+              <ProtectedRoute allowedRoles={["ADMIN"]}>
+                <AccountPlaceholder titleKey="payments" />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/stocks"
+            element={
+              <ProtectedRoute allowedRoles={["ADMIN"]}>
+                <AccountPlaceholder titleKey="stock" />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/users"
+            element={
+              <ProtectedRoute allowedRoles={["ADMIN"]}>
+                <AccountPlaceholder titleKey="users" />
+              </ProtectedRoute>
+            }
+          />
           <Route path="*" element={<Navigate to="/products" replace />} />
         </Routes>
       </main>
+    </div>
+  );
+}
+
+function AccountPlaceholder({ titleKey }: { titleKey: string }) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="mx-auto w-full max-w-3xl px-4 py-12">
+      <div className="animate-fade-up rounded-2xl border border-white/10 bg-slate-900/60 p-8 shadow-2xl shadow-black/50 backdrop-blur-xl">
+        <h1 className="text-2xl font-semibold tracking-tight text-white">{t(titleKey)}</h1>
+        <p className="mt-4 text-sm text-slate-400">{t("comingSoon")}</p>
+      </div>
     </div>
   );
 }
