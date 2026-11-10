@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import axios from "axios";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -103,10 +104,22 @@ function buildProductsRequest(
   t: TFunction,
   page: number,
   size: number,
+  priceRange?: { min: number; max: number } | null,
 ): { url: string; params: URLSearchParams } {
   const params = new URLSearchParams({ page: String(page), size: String(size) });
+
   const category =
     selectedCategoryId === "" ? matchCategory(categories, term, t) : undefined;
+  const activeCategoryId = selectedCategoryId !== "" ? selectedCategoryId : category?.id;
+
+  if (priceRange) {
+    params.append("minPrice", String(priceRange.min));
+    params.append("maxPrice", String(priceRange.max));
+    if (activeCategoryId != null) {
+      params.append("categoryId", String(activeCategoryId));
+    }
+    return { url: "/products/price", params };
+  }
 
   if (selectedCategoryId !== "") {
     return { url: `/products/category/${selectedCategoryId}`, params };
@@ -137,15 +150,51 @@ function Products() {
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [minPrice, setMinPrice] = useState(() => searchParams.get("min") ?? "");
+  const [maxPrice, setMaxPrice] = useState(() => searchParams.get("max") ?? "");
+  const [priceValidationError, setPriceValidationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMinPrice(searchParams.get("min") ?? "");
+    setMaxPrice(searchParams.get("max") ?? "");
+  }, [searchParams]);
+
+  const priceRange = useMemo(() => {
+    const rawMin = searchParams.get("min");
+    const rawMax = searchParams.get("max");
+
+    const parsedMin = rawMin !== null && rawMin.trim() !== "" ? Number(rawMin) : null;
+    const parsedMax = rawMax !== null && rawMax.trim() !== "" ? Number(rawMax) : null;
+
+    const validMin = parsedMin !== null && !isNaN(parsedMin) && parsedMin >= 0 ? parsedMin : null;
+    const validMax = parsedMax !== null && !isNaN(parsedMax) && parsedMax >= 0 ? parsedMax : null;
+
+    if (validMin === null && validMax === null) {
+      return null;
+    }
+
+    return {
+      min: validMin ?? 0,
+      max: validMax ?? Number.MAX_SAFE_INTEGER,
+    };
+  }, [searchParams]);
 
   const matchedCategory = useMemo(
     () => matchCategory(categories, searchTerm, t),
     [categories, searchTerm, t],
   );
 
+  const selectedCategory = useMemo(
+    () => (categoryId !== "" ? categories.find((c) => c.id === categoryId) : undefined),
+    [categories, categoryId],
+  );
+
+  const activeCategory = selectedCategory ?? matchedCategory;
+
   useEffect(() => {
     const controller = new AbortController();
-    const req = buildProductsRequest(categories, searchTerm, categoryId, t, page, PAGE_SIZE);
+    const req = buildProductsRequest(categories, searchTerm, categoryId, t, page, PAGE_SIZE, priceRange);
 
     api
       .get<Product[] | Page<Product>>(req.url, {
@@ -181,7 +230,7 @@ function Products() {
       });
 
     return () => controller.abort();
-  }, [categories, searchTerm, categoryId, page, t]);
+  }, [categories, searchTerm, categoryId, page, priceRange, t]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -200,7 +249,11 @@ function Products() {
     event.preventDefault();
     setSearching(true);
     setCategoryId("");
+    setPriceValidationError(null);
     setPage(0);
+    if (searchParams.has("min") || searchParams.has("max")) {
+      setSearchParams({}, { replace: true });
+    }
     setSearchTerm(query.trim());
   }
 
@@ -208,8 +261,60 @@ function Products() {
     setSearching(true);
     setQuery("");
     setSearchTerm("");
+    setPriceValidationError(null);
     setPage(0);
     setCategoryId(value);
+  }
+
+  function handleApplyPriceFilter(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPriceValidationError(null);
+
+    const minTrimmed = minPrice.trim();
+    const maxTrimmed = maxPrice.trim();
+
+    const minNum = minTrimmed !== "" ? Number(minTrimmed) : null;
+    const maxNum = maxTrimmed !== "" ? Number(maxTrimmed) : null;
+
+    if (minNum !== null && (isNaN(minNum) || minNum < 0)) {
+      setPriceValidationError(t("productsPage.priceInvalid"));
+      return;
+    }
+    if (maxNum !== null && (isNaN(maxNum) || maxNum < 0)) {
+      setPriceValidationError(t("productsPage.priceInvalid"));
+      return;
+    }
+    if (minNum !== null && maxNum !== null && minNum > maxNum) {
+      setPriceValidationError(t("productsPage.priceMinGreaterThanMax"));
+      return;
+    }
+
+    if (minTrimmed === "" && maxTrimmed === "") {
+      handleClearPriceFilter();
+      return;
+    }
+
+    setSearching(true);
+    setSearchTerm("");
+    setQuery("");
+    setPage(0);
+
+    const nextParams: Record<string, string> = {};
+    if (minTrimmed !== "") {
+      nextParams.min = minTrimmed;
+    }
+    if (maxTrimmed !== "") {
+      nextParams.max = maxTrimmed;
+    }
+    setSearchParams(nextParams, { replace: true });
+  }
+
+  function handleClearPriceFilter() {
+    setMinPrice("");
+    setMaxPrice("");
+    setPriceValidationError(null);
+    setPage(0);
+    setSearchParams({}, { replace: true });
   }
 
   return (
@@ -299,6 +404,77 @@ function Products() {
             );
           })}
         </div>
+
+        <div className="mt-5 border-t border-white/10 pt-4">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            {t("productsPage.priceFilterLabel")}
+          </p>
+
+          <form onSubmit={handleApplyPriceFilter} className="flex flex-wrap items-end gap-3">
+            <div>
+              <label htmlFor="minPrice" className="mb-1.5 block text-xs font-medium text-slate-400">
+                {t("productsPage.minPrice")}
+              </label>
+              <input
+                id="minPrice"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0"
+                value={minPrice}
+                onChange={(event) => {
+                  setMinPrice(event.target.value);
+                  setPriceValidationError(null);
+                }}
+                className="w-36 rounded-lg border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="maxPrice" className="mb-1.5 block text-xs font-medium text-slate-400">
+                {t("productsPage.maxPrice")}
+              </label>
+              <input
+                id="maxPrice"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="10000"
+                value={maxPrice}
+                onChange={(event) => {
+                  setMaxPrice(event.target.value);
+                  setPriceValidationError(null);
+                }}
+                className="w-36 rounded-lg border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={searching}
+              className="shrink-0 rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-500/30 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {t("productsPage.applyFilter")}
+            </button>
+
+            {(priceRange || minPrice || maxPrice) && (
+              <button
+                type="button"
+                onClick={handleClearPriceFilter}
+                disabled={searching}
+                className="shrink-0 rounded-lg border border-white/10 bg-slate-900/60 px-6 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10 focus:outline-none focus:ring-4 focus:ring-blue-500/30 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {t("productsPage.clearFilter")}
+              </button>
+            )}
+          </form>
+
+          {priceValidationError && (
+            <p role="alert" className="mt-2 text-xs text-red-400">
+              {priceValidationError}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Durum mesajları */}
@@ -308,10 +484,36 @@ function Products() {
             {t("productsPage.searching")}
           </p>
         )}
-        {matchedCategory && !searching && (
+        {activeCategory && priceRange && !searching && (
+          <p className="text-sm text-slate-300">
+            {priceRange.max === Number.MAX_SAFE_INTEGER
+              ? t("productsPage.categoryAndPriceMinOnly", {
+                  category: translateCategoryName(activeCategory.name, t),
+                  min: formatProductPrice(priceRange.min, "TRY", i18n.language),
+                })
+              : t("productsPage.categoryAndPriceResults", {
+                  category: translateCategoryName(activeCategory.name, t),
+                  min: formatProductPrice(priceRange.min, "TRY", i18n.language),
+                  max: formatProductPrice(priceRange.max, "TRY", i18n.language),
+                })}
+          </p>
+        )}
+        {!activeCategory && priceRange && !searching && (
+          <p className="text-sm text-slate-300">
+            {priceRange.max === Number.MAX_SAFE_INTEGER
+              ? t("productsPage.priceRangeMinOnly", {
+                  min: formatProductPrice(priceRange.min, "TRY", i18n.language),
+                })
+              : t("productsPage.priceRangeResults", {
+                  min: formatProductPrice(priceRange.min, "TRY", i18n.language),
+                  max: formatProductPrice(priceRange.max, "TRY", i18n.language),
+                })}
+          </p>
+        )}
+        {activeCategory && !priceRange && !searching && (
           <p className="text-sm text-slate-300">
             {t("productsPage.categoryResults", {
-              category: translateCategoryName(matchedCategory.name, t),
+              category: translateCategoryName(activeCategory.name, t),
             })}
           </p>
         )}
