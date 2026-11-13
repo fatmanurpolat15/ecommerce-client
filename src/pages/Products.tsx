@@ -1,325 +1,49 @@
-import { useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
-import { useSearchParams } from "react-router-dom";
-import axios from "axios";
-import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
-import api, { toApiError } from "../api/axiosInstance";
-import { translateCategoryName } from "../utils/categoryLabel";
-import type { Category, Page, Product } from "../types/api";
-
-const PAGE_SIZE = 12;
-
-const CATEGORY_THEMES: Record<string, { gradient: string; accent: string; glow: string }> = {
-  bilgisayar: {
-    gradient: "from-blue-500 via-blue-600 to-sky-700",
-    accent: "text-blue-400",
-    glow: "group-hover:shadow-blue-500/25",
-  },
-  telefon: {
-    gradient: "from-sky-500 via-cyan-600 to-blue-700",
-    accent: "text-cyan-400",
-    glow: "group-hover:shadow-cyan-500/25",
-  },
-  kulaklık: {
-    gradient: "from-indigo-500 via-blue-600 to-sky-700",
-    accent: "text-indigo-400",
-    glow: "group-hover:shadow-indigo-500/25",
-  },
-  klavye: {
-    gradient: "from-blue-400 via-sky-500 to-cyan-600",
-    accent: "text-sky-400",
-    glow: "group-hover:shadow-sky-500/25",
-  },
-  mouse: {
-    gradient: "from-sky-600 via-blue-700 to-slate-900",
-    accent: "text-sky-300",
-    glow: "group-hover:shadow-sky-600/25",
-  },
-};
-
-const FALLBACK_THEME = {
-  gradient: "from-slate-500 via-slate-600 to-slate-800",
-  accent: "text-slate-300",
-  glow: "group-hover:shadow-slate-500/25",
-};
-
-function themeFor(categoryName: string) {
-  return (
-    CATEGORY_THEMES[categoryName.trim().toLocaleLowerCase("tr")] ?? FALLBACK_THEME
-  );
-}
-
-function extractItems<T>(data: T[] | Page<T>): T[] {
-  return Array.isArray(data) ? data : data.content;
-}
-
-function formatProductPrice(
-  price: number,
-  currency: string | null | undefined,
-  lang: string,
-): string {
-  const safeCurrency = currency && currency.trim() ? currency.trim().toUpperCase() : "TRY";
-  try {
-    return new Intl.NumberFormat(lang === "tr" ? "tr-TR" : "en-US", {
-      style: "currency",
-      currency: safeCurrency,
-    }).format(price);
-  } catch {
-    return `${price} ${safeCurrency}`;
-  }
-}
-
-function normalize(value: string): string {
-  return value.trim().toLocaleLowerCase("tr");
-}
-
-function matchCategory(
-  categories: Category[],
-  term: string,
-  t: TFunction,
-): Category | undefined {
-  const normalizedTerm = normalize(term);
-  if (!normalizedTerm) {
-    return undefined;
-  }
-
-  const aliasesFor = (category: Category) => [
-    normalize(category.name),
-    normalize(translateCategoryName(category.name, t)),
-  ];
-
-  return (
-    categories.find((category) => aliasesFor(category).includes(normalizedTerm)) ??
-    categories.find((category) =>
-      aliasesFor(category).some((alias) => alias.includes(normalizedTerm)),
-    )
-  );
-}
-
-function buildProductsRequest(
-  categories: Category[],
-  term: string,
-  selectedCategoryId: number | "",
-  t: TFunction,
-  page: number,
-  size: number,
-  priceRange?: { min: number; max: number } | null,
-): { url: string; params: URLSearchParams } {
-  const params = new URLSearchParams({ page: String(page), size: String(size) });
-
-  const category =
-    selectedCategoryId === "" ? matchCategory(categories, term, t) : undefined;
-  const activeCategoryId = selectedCategoryId !== "" ? selectedCategoryId : category?.id;
-
-  if (priceRange) {
-    params.append("minPrice", String(priceRange.min));
-    params.append("maxPrice", String(priceRange.max));
-    if (activeCategoryId != null) {
-      params.append("categoryId", String(activeCategoryId));
-    }
-    return { url: "/products/price", params };
-  }
-
-  if (selectedCategoryId !== "") {
-    return { url: `/products/category/${selectedCategoryId}`, params };
-  }
-
-  if (category) {
-    return { url: `/products/category/${category.id}`, params };
-  }
-
-  if (term) {
-    params.append("keyword", term);
-    return { url: "/products/search", params };
-  }
-
-  return { url: "/products", params };
-}
+import CategorySidebar from "../components/CategorySidebar";
+import ProductCard from "../components/ProductCard";
+import Pagination from "../components/Pagination";
+import MobileFilterDrawer from "../components/MobileFilterDrawer";
+import ActiveFilterBadges from "../components/ActiveFilterBadges";
+import ProductStatusMessage from "../components/ProductStatusMessage";
+import { useProducts } from "../hooks/useProducts";
 
 function Products() {
-  const { t, i18n } = useTranslation();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [query, setQuery] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [categoryId, setCategoryId] = useState<number | "">("");
-  const [page, setPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
-  const [totalElements, setTotalElements] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [searching, setSearching] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [minPrice, setMinPrice] = useState(() => searchParams.get("min") ?? "");
-  const [maxPrice, setMaxPrice] = useState(() => searchParams.get("max") ?? "");
-  const [priceValidationError, setPriceValidationError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setMinPrice(searchParams.get("min") ?? "");
-    setMaxPrice(searchParams.get("max") ?? "");
-  }, [searchParams]);
-
-  const priceRange = useMemo(() => {
-    const rawMin = searchParams.get("min");
-    const rawMax = searchParams.get("max");
-
-    const parsedMin = rawMin !== null && rawMin.trim() !== "" ? Number(rawMin) : null;
-    const parsedMax = rawMax !== null && rawMax.trim() !== "" ? Number(rawMax) : null;
-
-    const validMin = parsedMin !== null && !isNaN(parsedMin) && parsedMin >= 0 ? parsedMin : null;
-    const validMax = parsedMax !== null && !isNaN(parsedMax) && parsedMax >= 0 ? parsedMax : null;
-
-    if (validMin === null && validMax === null) {
-      return null;
-    }
-
-    return {
-      min: validMin ?? 0,
-      max: validMax ?? Number.MAX_SAFE_INTEGER,
-    };
-  }, [searchParams]);
-
-  const matchedCategory = useMemo(
-    () => matchCategory(categories, searchTerm, t),
-    [categories, searchTerm, t],
-  );
-
-  const selectedCategory = useMemo(
-    () => (categoryId !== "" ? categories.find((c) => c.id === categoryId) : undefined),
-    [categories, categoryId],
-  );
-
-  const activeCategory = selectedCategory ?? matchedCategory;
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const req = buildProductsRequest(categories, searchTerm, categoryId, t, page, PAGE_SIZE, priceRange);
-
-    api
-      .get<Product[] | Page<Product>>(req.url, {
-        params: req.params,
-        signal: controller.signal,
-      })
-      .then((response) => {
-        if (Array.isArray(response.data)) {
-          setProducts(response.data);
-          setTotalPages(1);
-          setTotalElements(response.data.length);
-        } else {
-          setProducts(response.data.content ?? []);
-          setTotalPages(response.data.totalPages ?? 1);
-          setTotalElements(response.data.totalElements ?? response.data.content?.length ?? 0);
-        }
-        setError(null);
-      })
-      .catch((caught: unknown) => {
-        if (axios.isCancel(caught)) {
-          return;
-        }
-        setProducts([]);
-        setTotalPages(0);
-        setTotalElements(0);
-        setError(toApiError(caught, t("productsPage.loadError")).message);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-          setSearching(false);
-        }
-      });
-
-    return () => controller.abort();
-  }, [categories, searchTerm, categoryId, page, priceRange, t]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    api
-      .get<Category[] | Page<Category>>("/categories", {
-        signal: controller.signal,
-      })
-      .then((response) => setCategories(extractItems(response.data)))
-      .catch(() => undefined);
-
-    return () => controller.abort();
-  }, []);
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSearching(true);
-    setCategoryId("");
-    setPriceValidationError(null);
-    setPage(0);
-    if (searchParams.has("min") || searchParams.has("max")) {
-      setSearchParams({}, { replace: true });
-    }
-    setSearchTerm(query.trim());
-  }
-
-  function handleCategorySelect(value: number | "") {
-    setSearching(true);
-    setQuery("");
-    setSearchTerm("");
-    setPriceValidationError(null);
-    setPage(0);
-    setCategoryId(value);
-  }
-
-  function handleApplyPriceFilter(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPriceValidationError(null);
-
-    const minTrimmed = minPrice.trim();
-    const maxTrimmed = maxPrice.trim();
-
-    const minNum = minTrimmed !== "" ? Number(minTrimmed) : null;
-    const maxNum = maxTrimmed !== "" ? Number(maxTrimmed) : null;
-
-    if (minNum !== null && (isNaN(minNum) || minNum < 0)) {
-      setPriceValidationError(t("productsPage.priceInvalid"));
-      return;
-    }
-    if (maxNum !== null && (isNaN(maxNum) || maxNum < 0)) {
-      setPriceValidationError(t("productsPage.priceInvalid"));
-      return;
-    }
-    if (minNum !== null && maxNum !== null && minNum > maxNum) {
-      setPriceValidationError(t("productsPage.priceMinGreaterThanMax"));
-      return;
-    }
-
-    if (minTrimmed === "" && maxTrimmed === "") {
-      handleClearPriceFilter();
-      return;
-    }
-
-    setSearching(true);
-    setSearchTerm("");
-    setQuery("");
-    setPage(0);
-
-    const nextParams: Record<string, string> = {};
-    if (minTrimmed !== "") {
-      nextParams.min = minTrimmed;
-    }
-    if (maxTrimmed !== "") {
-      nextParams.max = maxTrimmed;
-    }
-    setSearchParams(nextParams, { replace: true });
-  }
-
-  function handleClearPriceFilter() {
-    setMinPrice("");
-    setMaxPrice("");
-    setPriceValidationError(null);
-    setPage(0);
-    setSearchParams({}, { replace: true });
-  }
+  const {
+    t,
+    i18n,
+    products,
+    categories,
+    query,
+    setQuery,
+    page,
+    setPage,
+    totalPages,
+    totalElements,
+    loading,
+    searching,
+    error,
+    mobileFiltersOpen,
+    setMobileFiltersOpen,
+    minPrice,
+    maxPrice,
+    priceValidationError,
+    selectedCategoryIds,
+    priceRange,
+    selectedCategories,
+    activeCategories,
+    activeCurrency,
+    setMinPrice,
+    setMaxPrice,
+    handleSubmit,
+    handleToggleCategory,
+    handleClearCategories,
+    handleClearAllFilters,
+    handleApplyPriceFilter,
+    handleClearPriceFilter,
+  } = useProducts();
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10">
-      {/* Başlık */}
+      {/* Başlık ve Toplam Ürün Sayacı */}
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-white">
@@ -335,9 +59,9 @@ function Products() {
         )}
       </div>
 
-      {/* Arama ve kategori paneli */}
-      <div className="mb-8 rounded-2xl border border-white/10 bg-slate-900/60 p-5 shadow-xl shadow-black/30 backdrop-blur-xl">
-        <form onSubmit={handleSubmit} className="flex items-center gap-3">
+      {/* Arama Çubuğu & Mobil Filtre Açma Butonu */}
+      <div className="mb-8 flex items-center gap-3">
+        <form onSubmit={handleSubmit} className="flex flex-1 items-center gap-3">
           <div className="relative flex-1">
             <svg
               className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
@@ -357,291 +81,169 @@ function Products() {
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t("productsPage.searchPlaceholder")}
               aria-label={t("productsPage.searchPlaceholder")}
-              className="w-full rounded-lg border border-white/10 bg-slate-950/50 py-2.5 pl-11 pr-4 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20"
+              className="w-full rounded-xl border border-white/10 bg-slate-900/60 py-3 pl-11 pr-4 text-sm text-slate-100 outline-none backdrop-blur-xl transition placeholder:text-slate-500 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20"
             />
           </div>
 
           <button
             type="submit"
             disabled={searching}
-            className="shrink-0 rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-500/30 disabled:cursor-not-allowed disabled:opacity-70"
+            className="shrink-0 rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-500/30 disabled:cursor-not-allowed disabled:opacity-70"
           >
             {t("productsPage.searchButton")}
           </button>
         </form>
 
-        <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
-          <button
-            type="button"
-            onClick={() => handleCategorySelect("")}
-            aria-pressed={categoryId === ""}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
-              categoryId === ""
-                ? "bg-blue-600 text-white shadow-md shadow-blue-600/25"
-                : "bg-white/5 text-slate-300 hover:bg-white/10"
-            }`}
-          >
-            {t("productsPage.allCategories")}
-          </button>
-
-          {categories.map((category) => {
-            const isActive = categoryId === category.id;
-
-            return (
-              <button
-                key={category.id}
-                type="button"
-                onClick={() => handleCategorySelect(category.id)}
-                aria-pressed={isActive}
-                className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
-                  isActive
-                    ? "bg-blue-600 text-white shadow-md shadow-blue-600/25"
-                    : "bg-white/5 text-slate-300 hover:bg-white/10"
-                }`}
-              >
-                {translateCategoryName(category.name, t)}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-5 border-t border-white/10 pt-4">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-            {t("productsPage.priceFilterLabel")}
-          </p>
-
-          <form onSubmit={handleApplyPriceFilter} className="flex flex-wrap items-end gap-3">
-            <div>
-              <label htmlFor="minPrice" className="mb-1.5 block text-xs font-medium text-slate-400">
-                {t("productsPage.minPrice")}
-              </label>
-              <input
-                id="minPrice"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="0"
-                value={minPrice}
-                onChange={(event) => {
-                  setMinPrice(event.target.value);
-                  setPriceValidationError(null);
-                }}
-                className="w-36 rounded-lg border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="maxPrice" className="mb-1.5 block text-xs font-medium text-slate-400">
-                {t("productsPage.maxPrice")}
-              </label>
-              <input
-                id="maxPrice"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="10000"
-                value={maxPrice}
-                onChange={(event) => {
-                  setMaxPrice(event.target.value);
-                  setPriceValidationError(null);
-                }}
-                className="w-36 rounded-lg border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={searching}
-              className="shrink-0 rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-500/30 disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {t("productsPage.applyFilter")}
-            </button>
-
-            {(priceRange || minPrice || maxPrice) && (
-              <button
-                type="button"
-                onClick={handleClearPriceFilter}
-                disabled={searching}
-                className="shrink-0 rounded-lg border border-white/10 bg-slate-900/60 px-6 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10 focus:outline-none focus:ring-4 focus:ring-blue-500/30 disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                {t("productsPage.clearFilter")}
-              </button>
-            )}
-          </form>
-
-          {priceValidationError && (
-            <p role="alert" className="mt-2 text-xs text-red-400">
-              {priceValidationError}
-            </p>
+        <button
+          type="button"
+          onClick={() => setMobileFiltersOpen(true)}
+          className="flex shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-4 py-3 text-sm font-semibold text-slate-200 shadow-lg backdrop-blur-xl transition hover:bg-white/10 lg:hidden"
+        >
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+          </svg>
+          <span>{t("productsPage.filterToggleMobile")}</span>
+          {(selectedCategoryIds.length > 0 || priceRange) && (
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">
+              {selectedCategoryIds.length + (priceRange ? 1 : 0)}
+            </span>
           )}
-        </div>
+        </button>
       </div>
 
-      {/* Durum mesajları */}
-      <div className="mb-6 min-h-6">
-        {searching && (
-          <p role="status" className="text-sm text-slate-400">
-            {t("productsPage.searching")}
-          </p>
-        )}
-        {activeCategory && priceRange && !searching && (
-          <p className="text-sm text-slate-300">
-            {priceRange.max === Number.MAX_SAFE_INTEGER
-              ? t("productsPage.categoryAndPriceMinOnly", {
-                  category: translateCategoryName(activeCategory.name, t),
-                  min: formatProductPrice(priceRange.min, "TRY", i18n.language),
-                })
-              : t("productsPage.categoryAndPriceResults", {
-                  category: translateCategoryName(activeCategory.name, t),
-                  min: formatProductPrice(priceRange.min, "TRY", i18n.language),
-                  max: formatProductPrice(priceRange.max, "TRY", i18n.language),
-                })}
-          </p>
-        )}
-        {!activeCategory && priceRange && !searching && (
-          <p className="text-sm text-slate-300">
-            {priceRange.max === Number.MAX_SAFE_INTEGER
-              ? t("productsPage.priceRangeMinOnly", {
-                  min: formatProductPrice(priceRange.min, "TRY", i18n.language),
-                })
-              : t("productsPage.priceRangeResults", {
-                  min: formatProductPrice(priceRange.min, "TRY", i18n.language),
-                  max: formatProductPrice(priceRange.max, "TRY", i18n.language),
-                })}
-          </p>
-        )}
-        {activeCategory && !priceRange && !searching && (
-          <p className="text-sm text-slate-300">
-            {t("productsPage.categoryResults", {
-              category: translateCategoryName(activeCategory.name, t),
-            })}
-          </p>
-        )}
-        {error && (
-          <p
-            role="alert"
-            className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300 backdrop-blur"
-          >
-            {error}
-          </p>
-        )}
-      </div>
-
-      {/* Ürün listesi */}
-      {loading ? (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, index) => (
-            <div
-              key={index}
-              className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/60 backdrop-blur-xl"
-            >
-              <div className="h-36 animate-pulse bg-white/5" />
-              <div className="space-y-2 p-4">
-                <div className="h-4 w-3/4 animate-pulse rounded bg-white/5" />
-                <div className="h-3 w-1/2 animate-pulse rounded bg-white/5" />
-                <div className="h-5 w-1/3 animate-pulse rounded bg-white/5" />
-              </div>
-            </div>
-          ))}
+      {/* Ana Gövde: Sol Sidebar + Sağ Ürün Listesi */}
+      <div className="flex flex-col items-start gap-8 lg:flex-row">
+        {/* Masaüstü Sol Sidebar */}
+        <div className="hidden lg:sticky lg:top-24 lg:block lg:w-64 xl:w-72 lg:shrink-0">
+          <CategorySidebar
+            categories={categories}
+            selectedCategoryIds={selectedCategoryIds}
+            onToggleCategory={handleToggleCategory}
+            onClearCategories={handleClearCategories}
+            t={t}
+            minPrice={minPrice}
+            maxPrice={maxPrice}
+            priceValidationError={priceValidationError}
+            onMinPriceChange={setMinPrice}
+            onMaxPriceChange={setMaxPrice}
+            onApplyPriceFilter={handleApplyPriceFilter}
+            onClearPriceFilter={handleClearPriceFilter}
+            isPriceFilterActive={Boolean(priceRange || minPrice || maxPrice)}
+            searching={searching}
+          />
         </div>
-      ) : products.length === 0 ? (
-        <div className="flex flex-col items-center gap-4 py-20 text-center">
-          <span className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-slate-900/60 backdrop-blur-xl">
-            <svg
-              className="h-8 w-8 text-slate-500"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={1.6}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
-            </svg>
-          </span>
-          <p className="text-sm text-slate-400">{t("productsPage.noResults")}</p>
-        </div>
-      ) : (
-        <>
-          <ul className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {products.map((product) => {
-              const theme = themeFor(product.categoryName);
-              const categoryLabel = translateCategoryName(product.categoryName, t);
 
-              return (
-                <li
-                  key={product.id}
-                  className={`group flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-900/60 shadow-lg shadow-black/30 backdrop-blur-xl transition duration-300 hover:-translate-y-1.5 hover:border-blue-500/40 hover:shadow-2xl ${theme.glow}`}
+        {/* Mobil Filtre Çekmecesi (Drawer) */}
+        <MobileFilterDrawer
+          isOpen={mobileFiltersOpen}
+          onClose={() => setMobileFiltersOpen(false)}
+          title={t("productsPage.filtersTitle")}
+        >
+          <CategorySidebar
+            categories={categories}
+            selectedCategoryIds={selectedCategoryIds}
+            onToggleCategory={handleToggleCategory}
+            onClearCategories={handleClearCategories}
+            t={t}
+            minPrice={minPrice}
+            maxPrice={maxPrice}
+            priceValidationError={priceValidationError}
+            onMinPriceChange={setMinPrice}
+            onMaxPriceChange={setMaxPrice}
+            onApplyPriceFilter={(e) => {
+              handleApplyPriceFilter(e);
+              setMobileFiltersOpen(false);
+            }}
+            onClearPriceFilter={handleClearPriceFilter}
+            isPriceFilterActive={Boolean(priceRange || minPrice || maxPrice)}
+            searching={searching}
+          />
+        </MobileFilterDrawer>
+
+        {/* Sağ Ana Bölüm */}
+        <div className="w-full flex-1 min-w-0">
+          {/* Aktif Filtre Rozetleri (Badges) */}
+          <ActiveFilterBadges
+            selectedCategories={selectedCategories}
+            priceRange={priceRange}
+            currency={activeCurrency}
+            language={i18n.language}
+            t={t}
+            onRemoveCategory={handleToggleCategory}
+            onClearPrice={handleClearPriceFilter}
+            onClearAll={handleClearAllFilters}
+          />
+
+          {/* Durum & Hata Mesajları */}
+          <ProductStatusMessage
+            searching={searching}
+            activeCategories={activeCategories}
+            priceRange={priceRange}
+            currency={activeCurrency}
+            language={i18n.language}
+            error={error}
+            t={t}
+          />
+
+          {/* Ürün Listesi Grid & Yükleme / Boş Durumları */}
+          {loading ? (
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 8 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/60 backdrop-blur-xl"
                 >
-                  <div
-                    className={`relative flex h-36 items-center justify-center bg-gradient-to-br ${theme.gradient}`}
-                  >
-                    {product.imageUrl ? (
-                      <img
-                        src={product.imageUrl}
-                        alt={product.name}
-                        loading="lazy"
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <>
-                        <div className="animate-shimmer absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent" />
-                        <span className="relative text-4xl font-black text-white/35 transition duration-300 group-hover:scale-110">
-                          {categoryLabel.charAt(0).toLocaleUpperCase("tr")}
-                        </span>
-                      </>
-                    )}
-
-                    <span className="absolute left-3 top-3 rounded-full bg-slate-950/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-200 backdrop-blur">
-                      {categoryLabel}
-                    </span>
+                  <div className="h-36 animate-pulse bg-white/5" />
+                  <div className="space-y-2 p-4">
+                    <div className="h-4 w-3/4 animate-pulse rounded bg-white/5" />
+                    <div className="h-3 w-1/2 animate-pulse rounded bg-white/5" />
+                    <div className="h-5 w-1/3 animate-pulse rounded bg-white/5" />
                   </div>
-
-                  <div className="flex flex-1 flex-col p-4">
-                    <h2 className="text-sm font-semibold leading-snug text-slate-100 transition group-hover:text-blue-300">
-                      {product.name}
-                    </h2>
-                    <p className="mt-1 line-clamp-2 text-xs text-slate-400">
-                      {product.description}
-                    </p>
-
-                    <div className="mt-auto pt-3">
-                      <p className={`text-lg font-bold ${theme.accent}`}>
-                        {formatProductPrice(product.price, product.currency, i18n.language)}
-                      </p>
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-
-          {totalPages > 1 && (
-            <div className="mt-10 flex items-center justify-center gap-3">
-              <button
-                type="button"
-                disabled={page <= 0 || loading}
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                className="rounded-lg border border-white/10 bg-slate-900/60 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {t("productsPage.previousPage")}
-              </button>
-              <span className="text-sm font-medium text-slate-400">
-                {t("productsPage.pageInfo", { current: page + 1, total: totalPages })}
-              </span>
-              <button
-                type="button"
-                disabled={page >= totalPages - 1 || loading}
-                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                className="rounded-lg border border-white/10 bg-slate-900/60 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {t("productsPage.nextPage")}
-              </button>
+                </div>
+              ))}
             </div>
+          ) : products.length === 0 ? (
+            <div className="flex flex-col items-center gap-4 py-20 text-center">
+              <span className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-slate-900/60 backdrop-blur-xl">
+                <svg
+                  className="h-8 w-8 text-slate-500"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.6}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+                </svg>
+              </span>
+              <p className="text-sm text-slate-400">{t("productsPage.noResults")}</p>
+            </div>
+          ) : (
+            <>
+              <ul className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                {products.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    t={t}
+                    language={i18n.language}
+                  />
+                ))}
+              </ul>
+
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                loading={loading}
+                onPageChange={setPage}
+                t={t}
+              />
+            </>
           )}
-        </>
-      )}
+        </div>
+      </div>
     </div>
   );
 }
